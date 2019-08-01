@@ -44,6 +44,7 @@ type Singleton struct {
 	Getter  GetterFunc
 	Setter  SetterFunc
 	Clear   MutatorFunc
+	schema  *Schema
 }
 
 type Collection struct {
@@ -53,4 +54,5 @@ type Collection struct {
 	Collector  CollectorFunc
 	Enumerator EnumeratorFunc
 	Clear      MutatorFunc
+	schema     *Schema
 }

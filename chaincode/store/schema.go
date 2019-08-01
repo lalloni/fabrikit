@@ -20,26 +20,32 @@ func MustPrepare(com Composite) *Schema {
 }
 
 func Prepare(com Composite) (*Schema, error) {
+	schema := &Schema{
+		name:      com.Name,
+		composite: &com,
+	}
 	value := com.Creator()
 	valueType := reflect.TypeOf(value).Elem()
 	members := map[string]interface{}{}
-	singletons := map[string]*Singleton{}
+	schema.singletons = map[string]*Singleton{}
 	for _, singleton := range com.Singletons {
 		singleton := singleton
 		err := prepareSingleton(&singleton, members, value)
 		if err != nil {
 			return nil, err
 		}
-		singletons[singleton.Tag] = &singleton
+		singleton.schema = schema
+		schema.singletons[singleton.Tag] = &singleton
 	}
-	collections := map[string]*Collection{}
+	schema.collections = map[string]*Collection{}
 	for _, collection := range com.Collections {
 		collection := collection
 		err := prepareCollection(&collection, members, valueType)
 		if err != nil {
 			return nil, err
 		}
-		collections[collection.Tag] = &collection
+		collection.schema = schema
+		schema.collections[collection.Tag] = &collection
 	}
 	if com.IdentifierGetter == nil {
 		if com.IdentifierField != "" {
@@ -56,12 +62,7 @@ func Prepare(com Composite) (*Schema, error) {
 	if com.Copier == nil {
 		com.Copier = reflectionShallowCopy
 	}
-	return &Schema{
-		name:        com.Name,
-		composite:   &com,
-		singletons:  singletons,
-		collections: collections,
-	}, nil
+	return schema, nil
 }
 
 func prepareCollection(collection *Collection, members map[string]interface{}, valueType reflect.Type) error {
@@ -211,6 +212,17 @@ func (cc *Schema) ValueWitness(val interface{}) (*Entry, error) {
 	}, nil
 }
 
+func (cc *Schema) IdentifierWitness(id interface{}) (*Entry, error) {
+	k, err := cc.IdentifierKey(id)
+	if err != nil {
+		return nil, err
+	}
+	return &Entry{
+		Key:   k.Tagged(witnessTag),
+		Value: 1,
+	}, nil
+}
+
 func (cc *Schema) KeyWitness(key *key.Key) *key.Key {
 	return key.Tagged(witnessTag)
 }
@@ -325,12 +337,12 @@ func (cc *Schema) SetIdentifier(val, id interface{}) (err error) {
 	return
 }
 
-func (cc *Schema) Collection(k *key.Key) *Collection {
-	return cc.collections[k.Tag.Name]
+func (cc *Schema) Collection(tag string) *Collection {
+	return cc.collections[tag]
 }
 
-func (cc *Schema) Singleton(k *key.Key) *Singleton {
-	return cc.singletons[k.Tag.Name]
+func (cc *Schema) Singleton(tag string) *Singleton {
+	return cc.singletons[tag]
 }
 
 func (cc *Schema) KeyBaseName() string {

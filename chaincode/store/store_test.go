@@ -422,6 +422,62 @@ func TestGetCompositeAll(t *testing.T) {
 	}
 }
 
+func TestGetCompositeSingleton(t *testing.T) {
+
+	a := assert.New(t)
+
+	c1 := &Compo{
+		Thing: &Thing{1234, "PP", 16, []Thingy{{"A"}, {"B"}}, ""},
+	}
+
+	shim.SetLoggingLevel(shim.LogDebug)
+	logging.SetLevel(logging.DEBUG, "mock")
+
+	stub := shim.NewMockStub("test", nil)
+	st := store.New(stub)
+
+	stub.MockTransactionStart("x")
+	err := st.PutComposite(cc, c1)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	thing, err := st.GetCompositeSingleton(cc.Singleton("thing"), c1.Thing.ID)
+	a.NoError(err)
+	a.EqualValues(c1.Thing, thing)
+
+}
+
+func TestPutCompositeSingleton(t *testing.T) {
+
+	a := assert.New(t)
+
+	c1 := &Compo{
+		Thing: &Thing{1234, "PP", 16, []Thingy{{"A"}, {"B"}}, ""},
+	}
+
+	shim.SetLoggingLevel(shim.LogDebug)
+	logging.SetLevel(logging.DEBUG, "mock")
+
+	stub := shim.NewMockStub("test", nil)
+	st := store.New(stub)
+
+	stub.MockTransactionStart("x")
+	err := st.PutComposite(cc, c1)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	thing2 := &Thing{1234, "QQQ", 32, []Thingy{{"X"}, {"Y"}, {"Z"}}, "blabla"}
+	stub.MockTransactionStart("x")
+	err = st.PutCompositeSingleton(cc.Singleton("thing"), c1.Thing.ID, thing2)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	c2, err := st.GetComposite(cc, c1.Thing.ID)
+	a.NoError(err)
+	a.EqualValues(thing2, c2.(*Compo).Thing)
+
+}
+
 func mustMarshal(v interface{}) string {
 	bs, err := json.Marshal(v)
 	if err != nil {

@@ -15,18 +15,25 @@ import (
 var log = shim.NewLogger("store")
 
 type Store interface {
-	PutValue(key *key.Key, val interface{}) error
-	GetValue(key *key.Key, val interface{}) (bool, error)
-	HasValue(key *key.Key) (bool, error)
-	DelValue(key *key.Key) error
-
 	PutComposite(s *Schema, val interface{}) error
 	GetComposite(s *Schema, id interface{}) (interface{}, error)
 	HasComposite(s *Schema, id interface{}) (bool, error)
 	DelComposite(s *Schema, id interface{}) error
+
 	GetCompositeAll(s *Schema) ([]interface{}, error)
+
 	GetCompositeRange(s *Schema, r *Range) ([]interface{}, error)
 	DelCompositeRange(s *Schema, r *Range) ([]interface{}, error)
+
+	PutCompositeSingleton(s *Singleton, id interface{}, val interface{}) error
+	GetCompositeSingleton(s *Singleton, id interface{}) (interface{}, error)
+
+	// low level k/v access methods
+
+	PutValue(key *key.Key, val interface{}) error
+	GetValue(key *key.Key, val interface{}) (bool, error)
+	HasValue(key *key.Key) (bool, error)
+	DelValue(key *key.Key) error
 }
 
 func New(stub shim.ChaincodeStubInterface, opts ...Option) Store {
@@ -71,16 +78,11 @@ func (ss *simplestore) DelValue(k *key.Key) error {
 func (ss *simplestore) PutComposite(s *Schema, val interface{}) error {
 	we, err := s.ValueWitness(val)
 	if err != nil {
-		return errors.Wrapf(err, "getting composite %q value witness", s.Name())
+		return errors.Wrapf(err, "getting composite %q value witness", s.name)
 	}
-	exist, err := ss.internalHasValue(we.Key)
+	err = ss.ensureCompositeWitness(s, we)
 	if err != nil {
-		return errors.Wrapf(err, "checking composite %q witness existence", s.Name())
-	}
-	if !exist {
-		if err := ss.internalPutValue(we.Key, we.Value); err != nil {
-			return errors.Wrapf(err, "putting composite %q witness", s.Name())
-		}
+		return errors.Wrapf(err, "ensuring composite %q value witness", s.name)
 	}
 	hascomps := false
 	entries, err := s.SingletonsEntries(val)
@@ -270,6 +272,59 @@ func (ss *simplestore) GetCompositeAll(s *Schema) ([]interface{}, error) {
 	return ss.internalReadCompositeIterator(s, states)
 }
 
+func (ss *simplestore) PutCompositeSingleton(s *Singleton, id interface{}, val interface{}) error {
+	we, err := s.schema.IdentifierWitness(id)
+	if err != nil {
+		return errors.Wrapf(err, "getting composite %q value witness for id %q", s.schema.name, id)
+	}
+	err = ss.ensureCompositeWitness(s.schema, we)
+	if err != nil {
+		return errors.Wrapf(err, "ensuring composite %q value witness for id %q", s.schema.name, id)
+	}
+	valkey, err := s.schema.IdentifierKey(id)
+	if err != nil {
+		return errors.Wrapf(err, "calculating composite %q with id %v key", s.schema.name, id)
+	}
+	key := valkey.Tagged(s.Tag)
+	err = ss.internalPutValue(key, val)
+	if err != nil {
+		return errors.Wrapf(err, "putting composite %q with key %q singleton %q value", s.schema.name, valkey, key)
+	}
+	return nil
+}
+
+func (ss *simplestore) GetCompositeSingleton(s *Singleton, id interface{}) (interface{}, error) {
+	valkey, err := s.schema.IdentifierKey(id)
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculating composite %q with id %v key", s.schema.name, id)
+	}
+	skey := valkey.Tagged(s.Tag)
+	sval := s.Creator()
+	ok, err := ss.internalGetValue(skey, sval)
+	if err != nil {
+		return nil, errors.Wrapf(err, "getting composite %q with key %q singleton %q value", s.schema.name, valkey, skey)
+	}
+	if !ok {
+		return nil, nil
+	}
+	return sval, nil
+}
+
+// internal functions ------------------
+
+func (ss *simplestore) ensureCompositeWitness(s *Schema, we *Entry) error {
+	exist, err := ss.internalHasValue(we.Key)
+	if err != nil {
+		return errors.Wrapf(err, "checking composite %q witness existence", s.Name())
+	}
+	if !exist {
+		if err := ss.internalPutValue(we.Key, we.Value); err != nil {
+			return errors.Wrapf(err, "putting composite %q witness", s.Name())
+		}
+	}
+	return nil
+}
+
 func (ss *simplestore) internalReadCompositeIterator(s *Schema, states shim.StateQueryIteratorInterface) ([]interface{}, error) {
 	var (
 		valkey  *key.Key
@@ -385,8 +440,8 @@ func (ss *simplestore) inject(s *Schema, statekey *key.Key, state *queryresult.K
 				Error: err.Error(),
 			}
 		}
-	case s.Collection(statekey) != nil:
-		member := s.Collection(statekey)
+	case s.Collection(statekey.Tag.Name) != nil:
+		member := s.Collection(statekey.Tag.Name)
 		itemval := member.Creator()
 		err := ss.internalParseValue(state.GetValue(), itemval)
 		if err != nil {
@@ -402,8 +457,8 @@ func (ss *simplestore) inject(s *Schema, statekey *key.Key, state *queryresult.K
 			}
 		}
 		member.Collector(val, Item{Identifier: statekey.Tag.Value, Value: itemval})
-	case s.Singleton(statekey) != nil:
-		member := s.Singleton(statekey)
+	case s.Singleton(statekey.Tag.Name) != nil:
+		member := s.Singleton(statekey.Tag.Name)
 		itemval := member.Creator()
 		err := ss.internalParseValue(state.GetValue(), itemval)
 		if err != nil {
