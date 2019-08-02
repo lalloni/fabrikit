@@ -75,19 +75,25 @@ func prepareCollection(collection *Collection, members map[string]interface{}, v
 	if _, ok := members[collection.Tag]; ok {
 		return errors.Errorf("duplicate member tag: collection %+v", collection)
 	}
-	if collection.Collector == nil {
+	if collection.Getter == nil {
 		if collection.Field != "" {
-			collection.Collector = MapCollector(FieldGetter(collection.Field), FieldSetter(collection.Field))
+			collection.Getter = FieldGetter(collection.Field)
 		} else {
-			return errors.Errorf("composite collection with tag %q must have a collector function or specify a field name", collection.Tag)
+			return errors.Errorf("composite colletion with tag %q must have a getter function or specify a field name", collection.Tag)
 		}
 	}
-	if collection.Enumerator == nil {
+	if collection.Setter == nil {
 		if collection.Field != "" {
-			collection.Enumerator = MapEnumerator(FieldGetter(collection.Field))
+			collection.Setter = FieldSetter(collection.Field)
 		} else {
-			return errors.Errorf("composite collection with tag %q must have an enumerator function or specify a field name", collection.Tag)
+			return errors.Errorf("composite collection with tag %q must have a setter function or specify a field name", collection.Tag)
 		}
+	}
+	if collection.Collector == nil {
+		collection.Collector = MapCollector()
+	}
+	if collection.Enumerator == nil {
+		collection.Enumerator = MapEnumerator()
 	}
 	if collection.Creator == nil {
 		if collection.Field != "" {
@@ -95,9 +101,22 @@ func prepareCollection(collection *Collection, members map[string]interface{}, v
 			if !ok {
 				return errors.Errorf("composite collection with tag %q field name %q does not match any value field", collection.Tag, collection.Field)
 			}
-			collection.Creator = ValueCreator(reflect.New(field.Type.Elem()).Elem().Interface())
+			collection.Creator = func() interface{} {
+				return reflect.MakeMap(field.Type).Interface()
+			}
 		} else {
 			return errors.Errorf("composite collection with tag %q must have a creator function or specify a field name", collection.Tag)
+		}
+	}
+	if collection.ItemCreator == nil {
+		if collection.Field != "" {
+			field, ok := valueType.FieldByName(collection.Field)
+			if !ok {
+				return errors.Errorf("composite collection with tag %q field name %q does not match any value field", collection.Tag, collection.Field)
+			}
+			collection.ItemCreator = ValueCreator(reflect.New(field.Type.Elem()).Elem().Interface())
+		} else {
+			return errors.Errorf("composite collection with tag %q must have a valuer creator function or specify a field name", collection.Tag)
 		}
 	}
 	if collection.Clear == nil {
@@ -287,15 +306,21 @@ func (cc *Schema) CollectionsEntries(val interface{}) (entries []*Entry, err err
 	}()
 	entries = []*Entry{}
 	for _, collection = range cc.collections {
-		items := collection.Enumerator(val)
-		for _, item := range items {
-			entries = append(entries, &Entry{
-				Key:   valkey.Tagged(collection.Tag, item.Identifier),
-				Value: item.Value,
-			})
-		}
+		entries = append(entries, cc.CollectionEntries(collection, valkey, collection.Getter(val))...)
 	}
 	return
+}
+
+func (cc *Schema) CollectionEntries(collection *Collection, valkey *key.Key, col interface{}) []*Entry {
+	entries := []*Entry{}
+	items := collection.Enumerator(col)
+	for _, item := range items {
+		entries = append(entries, &Entry{
+			Key:   valkey.Tagged(collection.Tag, item.Identifier),
+			Value: item.Value,
+		})
+	}
+	return entries
 }
 
 func (cc *Schema) Cleared(v interface{}) interface{} {

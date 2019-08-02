@@ -48,11 +48,14 @@ type Singleton struct {
 }
 
 type Collection struct {
-	Tag        string
-	Field      string
+	Tag         string
+	Field       string
 	Creator    CreatorFunc
+	Getter      GetterFunc
+	Setter      SetterFunc
+	Clear       MutatorFunc
 	Collector  CollectorFunc
 	Enumerator EnumeratorFunc
-	Clear      MutatorFunc
-	schema     *Schema
+	ItemCreator CreatorFunc
+	schema      *Schema
 }

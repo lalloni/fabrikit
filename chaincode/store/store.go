@@ -28,6 +28,9 @@ type Store interface {
 	PutCompositeSingleton(s *Singleton, id interface{}, val interface{}) error
 	GetCompositeSingleton(s *Singleton, id interface{}) (interface{}, error)
 
+	PutCompositeCollection(c *Collection, id interface{}, col interface{}) error
+	GetCompositeCollection(c *Collection, id interface{}) (interface{}, error)
+
 	// low level k/v access methods
 
 	PutValue(key *key.Key, val interface{}) error
@@ -106,16 +109,9 @@ func (ss *simplestore) PutComposite(s *Schema, val interface{}) error {
 	if len(entries) > 0 {
 		hascomps = true
 	}
-	for _, entry := range entries {
-		if reflect.ValueOf(entry.Value).IsNil() {
-			if err := ss.internalDelValue(entry.Key); err != nil {
-				return errors.Wrapf(err, "deleting composite %q collection entry %q", s.Name(), entry)
-			}
-		} else {
-			if err := ss.internalPutValue(entry.Key, entry.Value); err != nil {
-				return errors.Wrapf(err, "putting composite %q collection entry %q", s.Name(), entry)
-			}
-		}
+	err = ss.internalPutCollectionsEntries(s, entries)
+	if err != nil {
+		return errors.WithStack(err)
 	}
 	if !hascomps || s.MustKeepRoot(val) {
 		entry, err := s.RootEntry(val)
@@ -310,7 +306,63 @@ func (ss *simplestore) GetCompositeSingleton(s *Singleton, id interface{}) (inte
 	return sval, nil
 }
 
+func (ss *simplestore) PutCompositeCollection(c *Collection, id interface{}, col interface{}) error {
+	valkey, err := c.schema.IdentifierKey(id)
+	if err != nil {
+		return errors.Wrapf(err, "calculating composite %q with id %v key", c.schema.name, id)
+	}
+	entries := c.schema.CollectionEntries(c, valkey, col)
+	err = ss.internalPutCollectionsEntries(c.schema, entries)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
+}
+
+func (ss *simplestore) GetCompositeCollection(c *Collection, id interface{}) (interface{}, error) {
+	valkey, err := c.schema.IdentifierKey(id)
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculating composite %q with id %v key", c.schema.name, id)
+	}
+	basekey := valkey.Tagged(c.Tag)
+	first, last := basekey.RangeUsing(ss.sep)
+	states, err := ss.stub.GetStateByRange(first, last)
+	col := c.Creator()
+	for states.HasNext() {
+		state, err := states.Next()
+		if err != nil {
+			return nil, errors.Wrapf(err, "getting composite %q iterator next key for reading", c.schema.name)
+		}
+		statekey, err := key.ParseUsing(state.GetKey(), ss.sep)
+		if err != nil {
+			return nil, errors.Wrapf(err, "parsing state key %q as composite %q key", state.GetKey(), c.schema.name)
+		}
+		itemval := c.ItemCreator()
+		err = ss.internalParseValue(state.GetValue(), itemval)
+		if err != nil {
+			return nil, errors.Wrapf(err, "parsing composite %q with key %q collection item %q value", c.schema.name, valkey, statekey)
+		}
+		c.Collector(col, Item{Identifier: statekey.Tag.Value, Value: itemval})
+	}
+	return col, nil
+}
+
 // internal functions ------------------
+
+func (ss *simplestore) internalPutCollectionsEntries(s *Schema, entries []*Entry) error {
+	for _, entry := range entries {
+		if reflect.ValueOf(entry.Value).IsNil() {
+			if err := ss.internalDelValue(entry.Key); err != nil {
+				return errors.Wrapf(err, "deleting composite %q collection entry %q", s.name, entry)
+			}
+		} else {
+			if err := ss.internalPutValue(entry.Key, entry.Value); err != nil {
+				return errors.Wrapf(err, "putting composite %q collection entry %q", s.name, entry)
+			}
+		}
+	}
+	return nil
+}
 
 func (ss *simplestore) ensureCompositeWitness(s *Schema, we *Entry) error {
 	exist, err := ss.internalHasValue(we.Key)
@@ -442,7 +494,7 @@ func (ss *simplestore) inject(s *Schema, statekey *key.Key, state *queryresult.K
 		}
 	case s.Collection(statekey.Tag.Name) != nil:
 		member := s.Collection(statekey.Tag.Name)
-		itemval := member.Creator()
+		itemval := member.ItemCreator()
 		err := ss.internalParseValue(state.GetValue(), itemval)
 		if err != nil {
 			ss.log.Errorf("parsing composite %q with key %q collection item %q value in tx %s: %v", s.Name, valkey, statekey, ss.stub.GetTxID(), err)
@@ -456,7 +508,12 @@ func (ss *simplestore) inject(s *Schema, statekey *key.Key, state *queryresult.K
 				Error: err.Error(),
 			}
 		}
-		member.Collector(val, Item{Identifier: statekey.Tag.Value, Value: itemval})
+		colval := member.Getter(val)
+		if reflect.ValueOf(colval).IsNil() {
+			colval = member.Creator()
+			member.Setter(val, colval)
+		}
+		member.Collector(colval, Item{Identifier: statekey.Tag.Value, Value: itemval})
 	case s.Singleton(statekey.Tag.Name) != nil:
 		member := s.Singleton(statekey.Tag.Name)
 		itemval := member.Creator()

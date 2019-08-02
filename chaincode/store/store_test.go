@@ -53,9 +53,11 @@ type Compo struct {
 }
 
 var cc = store.MustPrepare(store.Composite{
-	Name:        "compo",
-	KeepRoot:    true,
-	Creator:     func() interface{} { return &Compo{Items: map[string]*Item{}, Foos: map[string]*Foo{}} },
+	Name:     "compo",
+	KeepRoot: true,
+	Creator: func() interface{} {
+		return &Compo{Items: map[string]*Item{}, Foos: map[string]*Foo{}}
+	},
 	KeyBaseName: "compo",
 	IdentifierGetter: func(v interface{}) interface{} {
 		return v.(*Compo).Thing.ID
@@ -77,12 +79,14 @@ var cc = store.MustPrepare(store.Composite{
 	},
 	Collections: []store.Collection{
 		{Tag: "item",
-			Field:     "Items",
-			Creator:   func() interface{} { return &Item{} },
-			Collector: func(v interface{}, i store.Item) { v.(*Compo).Items[i.Identifier] = i.Value.(*Item) },
-			Enumerator: func(v interface{}) []store.Item {
+			Field:       "Items",
+			ItemCreator: func() interface{} { return &Item{} },
+			Collector: func(col interface{}, i store.Item) {
+				col.(map[string]*Item)[i.Identifier] = i.Value.(*Item)
+			},
+			Enumerator: func(col interface{}) []store.Item {
 				items := []store.Item{}
-				for k, v := range v.(*Compo).Items {
+				for k, v := range col.(map[string]*Item) {
 					items = append(items, store.Item{Identifier: k, Value: v})
 				}
 				return items
@@ -148,7 +152,7 @@ func TestPutAndGetComposite(t *testing.T) {
 	c2, err := st.GetComposite(cc, c1.Thing.ID)
 	a.NoError(err)
 	t.Logf("get: %+v", mustMarshal(c2))
-	a.Equal(c1, c2)
+	a.EqualValues(c1, c2)
 }
 
 func TestGetMissingComposite(t *testing.T) {
@@ -475,6 +479,74 @@ func TestPutCompositeSingleton(t *testing.T) {
 	c2, err := st.GetComposite(cc, c1.Thing.ID)
 	a.NoError(err)
 	a.EqualValues(thing2, c2.(*Compo).Thing)
+
+}
+
+func TestGetCompositeCollection(t *testing.T) {
+
+	a := assert.New(t)
+
+	c1 := &Compo{
+		Thing: &Thing{ID: 1234},
+		Items: map[string]*Item{
+			"a": {Name: "Pedro", Quantity: 10.0},
+			"b": {Name: "Pablo", Quantity: 20.0},
+		},
+	}
+
+	shim.SetLoggingLevel(shim.LogDebug)
+	logging.SetLevel(logging.DEBUG, "mock")
+
+	stub := shim.NewMockStub("test", nil)
+	st := store.New(stub)
+
+	stub.MockTransactionStart("x")
+	err := st.PutComposite(cc, c1)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+	t.Logf("put: %+v", mustMarshal(c1))
+
+	col := cc.Collection("item")
+	a.NotNil(col)
+	items, err := st.GetCompositeCollection(col, c1.Thing.ID)
+	a.NoError(err)
+	a.EqualValues(c1.Items, items)
+	t.Logf("get: %+v", mustMarshal(items))
+
+}
+
+func TestPutCompositeCollection(t *testing.T) {
+
+	a := assert.New(t)
+
+	c1 := &Compo{
+		Thing: &Thing{1234, "PP", 16, []Thingy{}, ""},
+		Items: map[string]*Item{"z": &Item{Name: "z", Quantity: 1}},
+	}
+
+	shim.SetLoggingLevel(shim.LogDebug)
+	logging.SetLevel(logging.DEBUG, "mock")
+
+	stub := shim.NewMockStub("test", nil)
+	st := store.New(stub)
+
+	stub.MockTransactionStart("x")
+	err := st.PutComposite(cc, c1)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	items := map[string]*Item{"a": &Item{Name: "a", Quantity: 10}, "b": &Item{Name: "b", Quantity: 20}, "z": nil}
+	stub.MockTransactionStart("x")
+	col := cc.Collection("item")
+	a.NotNil(col)
+	err = st.PutCompositeCollection(col, c1.Thing.ID, items)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	c2, err := st.GetComposite(cc, c1.Thing.ID)
+	a.NoError(err)
+	delete(items, "z") // it should not be present on read data
+	a.EqualValues(items, c2.(*Compo).Items)
 
 }
 

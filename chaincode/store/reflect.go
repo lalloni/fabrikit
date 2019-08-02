@@ -35,10 +35,10 @@ func FieldGetter(name string) GetterFunc {
 	}
 }
 
-func MapEnumerator(mapGetter GetterFunc) EnumeratorFunc {
+func MapEnumerator() EnumeratorFunc {
 	return func(v interface{}) []Item {
 		items := []Item{}
-		mv := reflect.ValueOf(mapGetter(v))
+		mv := reflect.ValueOf(v)
 		vs := mv.MapKeys()
 		for _, v := range vs {
 			items = append(items, NewItem(v.String(), mv.MapIndex(v).Interface()))
@@ -47,14 +47,9 @@ func MapEnumerator(mapGetter GetterFunc) EnumeratorFunc {
 	}
 }
 
-func MapCollector(mapGetter GetterFunc, mapSetter SetterFunc) CollectorFunc {
+func MapCollector() CollectorFunc {
 	return func(v interface{}, item Item) {
-		mv := reflect.ValueOf(mapGetter(v))
-		if mv.IsNil() {
-			mv = reflect.MakeMap(mv.Type())
-			mapSetter(v, mv.Interface())
-		}
-		mv.SetMapIndex(reflect.ValueOf(item.Identifier), reflect.ValueOf(item.Value))
+		reflect.ValueOf(v).SetMapIndex(reflect.ValueOf(item.Identifier), reflect.ValueOf(item.Value))
 	}
 }
 
