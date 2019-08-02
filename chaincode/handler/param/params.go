@@ -37,11 +37,35 @@ func parseuint64(arg []byte) (uint64, error) {
 	return r, nil
 }
 
-var String = Typed("string", reflect.TypeOf(""), parsestring)
-
-func parsestring(arg []byte) (interface{}, error) {
-	if !utf8.Valid(arg) {
-		return nil, errors.Errorf("invalid UTF-8 string")
-	}
-	return string(arg), nil
+func StringVar(s *string) TypedParam {
+	return Typed("string", reflect.TypeOf(""), func(bs []byte) (interface{}, error) {
+		if !utf8.Valid(bs) {
+			return nil, errors.Errorf("invalid UTF-8 string")
+		}
+		*s = string(bs)
+		return *s, nil
+	})
 }
+
+var String = StringVar(nil)
+
+func BoolVar(ref *bool) TypedParam {
+	return Typed("boolean", reflect.TypeOf(true), func(bs []byte) (interface{}, error) {
+		s := string(bs)
+		var v bool
+		switch s {
+		case "true":
+			v = true
+		case "false":
+			v = false
+		default:
+			return nil, errors.Errorf("invalid boolean: '%v'", s)
+		}
+		if ref != nil {
+			*ref = v
+		}
+		return v, nil
+	})
+}
+
+var Bool = BoolVar(nil)
