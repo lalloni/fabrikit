@@ -550,6 +550,132 @@ func TestPutCompositeCollection(t *testing.T) {
 
 }
 
+func TestPutCompositeCollectionItem(t *testing.T) {
+
+	a := assert.New(t)
+
+	c1 := &Compo{
+		Thing: &Thing{1234, "PP", 16, []Thingy{}, ""},
+		Items: map[string]*Item{"z": &Item{Name: "z", Quantity: 1}},
+	}
+
+	shim.SetLoggingLevel(shim.LogDebug)
+	logging.SetLevel(logging.DEBUG, "mock")
+
+	stub := shim.NewMockStub("test", nil)
+	st := store.New(stub)
+
+	stub.MockTransactionStart("x")
+	err := st.PutComposite(cc, c1)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	col := cc.Collection("item")
+	a.NotNil(col)
+
+	item := &Item{Name: "a", Quantity: 10}
+	stub.MockTransactionStart("x")
+	err = st.PutCompositeCollectionItem(col, c1.Thing.ID, "a", item)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	c2, err := st.GetComposite(cc, c1.Thing.ID)
+	a.NoError(err)
+	items := map[string]*Item{"z": &Item{Name: "z", Quantity: 1}, "a": &Item{Name: "a", Quantity: 10}}
+	a.EqualValues(items, c2.(*Compo).Items)
+
+	item.Quantity = 20
+	stub.MockTransactionStart("x")
+	err = st.PutCompositeCollectionItem(col, c1.Thing.ID, "a", item)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	c2, err = st.GetComposite(cc, c1.Thing.ID)
+	a.NoError(err)
+	items = map[string]*Item{"z": &Item{Name: "z", Quantity: 1}, "a": &Item{Name: "a", Quantity: 20}}
+	a.EqualValues(items, c2.(*Compo).Items)
+
+	stub.MockTransactionStart("x")
+	err = st.PutCompositeCollectionItem(col, c1.Thing.ID, "a", nil)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	c2, err = st.GetComposite(cc, c1.Thing.ID)
+	a.NoError(err)
+	a.NotContains(c2.(*Compo).Items, "a")
+
+}
+
+func TestGetCompositeCollectionItem(t *testing.T) {
+
+	a := assert.New(t)
+
+	c1 := &Compo{
+		Thing: &Thing{1234, "PP", 16, []Thingy{}, ""},
+		Items: map[string]*Item{"z": &Item{Name: "z", Quantity: 1}},
+	}
+
+	shim.SetLoggingLevel(shim.LogDebug)
+	logging.SetLevel(logging.DEBUG, "mock")
+
+	stub := shim.NewMockStub("test", nil)
+	st := store.New(stub)
+
+	stub.MockTransactionStart("x")
+	err := st.PutComposite(cc, c1)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	col := cc.Collection("item")
+	a.NotNil(col)
+
+	stub.MockTransactionStart("x")
+	item, err := st.GetCompositeCollectionItem(col, c1.Thing.ID, "z")
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+	a.EqualValues(c1.Items["z"], item)
+
+	stub.MockTransactionStart("x")
+	item, err = st.GetCompositeCollectionItem(col, c1.Thing.ID, "a")
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+	a.Nil(item)
+
+}
+
+func TestDelCompositeCollectionItem(t *testing.T) {
+
+	a := assert.New(t)
+
+	c1 := &Compo{
+		Thing: &Thing{1234, "PP", 16, []Thingy{}, ""},
+		Items: map[string]*Item{"a": &Item{Name: "a", Quantity: 10}, "b": &Item{Name: "b", Quantity: 20}},
+	}
+
+	shim.SetLoggingLevel(shim.LogDebug)
+	logging.SetLevel(logging.DEBUG, "mock")
+
+	stub := shim.NewMockStub("test", nil)
+	st := store.New(stub)
+
+	stub.MockTransactionStart("x")
+	err := st.PutComposite(cc, c1)
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	col := cc.Collection("item")
+	a.NotNil(col)
+
+	stub.MockTransactionStart("x")
+	err = st.DelCompositeCollectionItem(col, c1.Thing.ID, "a")
+	stub.MockTransactionEnd("x")
+	a.NoError(err)
+
+	c2, err := st.GetComposite(cc, c1.Thing.ID)
+	a.NoError(err)
+	a.NotContains(c2.(*Compo).Items, "a")
+}
+
 func mustMarshal(v interface{}) string {
 	bs, err := json.Marshal(v)
 	if err != nil {

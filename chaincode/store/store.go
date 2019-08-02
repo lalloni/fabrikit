@@ -31,6 +31,10 @@ type Store interface {
 	PutCompositeCollection(c *Collection, id interface{}, col interface{}) error
 	GetCompositeCollection(c *Collection, id interface{}) (interface{}, error)
 
+	PutCompositeCollectionItem(c *Collection, id interface{}, itemid string, val interface{}) error
+	GetCompositeCollectionItem(c *Collection, id interface{}, itemid string) (interface{}, error)
+	DelCompositeCollectionItem(c *Collection, id interface{}, itemid string) error
+
 	// low level k/v access methods
 
 	PutValue(key *key.Key, val interface{}) error
@@ -347,18 +351,67 @@ func (ss *simplestore) GetCompositeCollection(c *Collection, id interface{}) (in
 	return col, nil
 }
 
+func (ss *simplestore) PutCompositeCollectionItem(c *Collection, id interface{}, itemid string, val interface{}) error {
+	valkey, err := c.schema.IdentifierKey(id)
+	if err != nil {
+		return errors.Wrapf(err, "calculating composite %q with id %v key", c.schema.name, id)
+	}
+	err = ss.internalPutCollectionEntry(c.schema, valkey.Tagged(c.Tag, itemid), val)
+	if err != nil {
+		return errors.Wrapf(err, "putting composite %q collection %q item %q", c.schema.name, c.Tag, itemid)
+	}
+	return nil
+}
+
+func (ss *simplestore) GetCompositeCollectionItem(c *Collection, id interface{}, itemid string) (interface{}, error) {
+	valkey, err := c.schema.IdentifierKey(id)
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculating composite %q with id %v key", c.schema.name, id)
+	}
+	item := c.ItemCreator()
+	ok, err := ss.internalGetValue(valkey.Tagged(c.Tag, itemid), &item)
+	if err != nil {
+		return nil, errors.Wrapf(err, "getting composite %q collection %q item %q", c.schema.name, c.Tag, itemid)
+	}
+	if !ok {
+		return nil, nil
+	}
+	return item, nil
+}
+
+func (ss *simplestore) DelCompositeCollectionItem(c *Collection, id interface{}, itemid string) error {
+	valkey, err := c.schema.IdentifierKey(id)
+	if err != nil {
+		return errors.Wrapf(err, "calculating composite %q with id %v key", c.schema.name, id)
+	}
+	err = ss.internalDelValue(valkey.Tagged(c.Tag, itemid))
+	if err != nil {
+		return errors.Wrapf(err, "deleting composite %q collection %q item %q", c.schema.name, c.Tag, itemid)
+	}
+	return nil
+}
+
 // internal functions ------------------
 
 func (ss *simplestore) internalPutCollectionsEntries(s *Schema, entries []*Entry) error {
 	for _, entry := range entries {
-		if reflect.ValueOf(entry.Value).IsNil() {
-			if err := ss.internalDelValue(entry.Key); err != nil {
-				return errors.Wrapf(err, "deleting composite %q collection entry %q", s.name, entry)
-			}
-		} else {
-			if err := ss.internalPutValue(entry.Key, entry.Value); err != nil {
-				return errors.Wrapf(err, "putting composite %q collection entry %q", s.name, entry)
-			}
+		err := ss.internalPutCollectionEntry(s, entry.Key, entry.Value)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+	}
+	return nil
+}
+
+func (ss *simplestore) internalPutCollectionEntry(s *Schema, k *key.Key, val interface{}) error {
+	v := reflect.ValueOf(val)
+	if !v.IsValid() || v.IsNil() {
+		if err := ss.internalDelValue(k); err != nil {
+			return errors.Wrapf(err, "deleting composite %q collection entry %q", s.name, &Entry{k, val})
+		}
+	} else {
+		if err := ss.internalPutValue(k, val); err != nil {
+			return errors.Wrapf(err, "putting composite %q collection entry %q", s.name, &Entry{k, val})
 		}
 	}
 	return nil
