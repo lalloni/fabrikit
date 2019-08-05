@@ -59,7 +59,7 @@ func Func(function interface{}, pars ...param.TypedParam) (Handler, error) {
 	}
 
 	return func(ctx *context.Context) *response.Response {
-		args, err := ExtractArgs(ctx.Stub.GetArgs()[1:], param.Untyped(pars...)...)
+		args, err := ExtractArgs(ctx.Args(), param.Untyped(pars...)...)
 		if err != nil {
 			return response.BadRequest(err.Error())
 		}
