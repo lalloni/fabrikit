@@ -38,6 +38,7 @@ type Composite struct {
 }
 
 type Singleton struct {
+	Name    string
 	Tag     string
 	Field   string
 	Creator CreatorFunc
@@ -48,14 +49,15 @@ type Singleton struct {
 }
 
 type Collection struct {
+	Name        string
 	Tag         string
 	Field       string
-	Creator    CreatorFunc
+	Creator     CreatorFunc
 	Getter      GetterFunc
 	Setter      SetterFunc
 	Clear       MutatorFunc
-	Collector  CollectorFunc
-	Enumerator EnumeratorFunc
+	Collector   CollectorFunc
+	Enumerator  EnumeratorFunc
 	ItemCreator CreatorFunc
 	schema      *Schema
 }

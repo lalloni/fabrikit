@@ -332,7 +332,9 @@ func (ss *simplestore) GetCompositeCollection(c *Collection, id interface{}) (in
 	first, last := basekey.RangeUsing(ss.sep)
 	states, err := ss.stub.GetStateByRange(first, last)
 	col := c.Creator()
+	read := false
 	for states.HasNext() {
+		read = true
 		state, err := states.Next()
 		if err != nil {
 			return nil, errors.Wrapf(err, "getting composite %q iterator next key for reading", c.schema.name)
@@ -347,6 +349,9 @@ func (ss *simplestore) GetCompositeCollection(c *Collection, id interface{}) (in
 			return nil, errors.Wrapf(err, "parsing composite %q with key %q collection item %q value", c.schema.name, valkey, statekey)
 		}
 		c.Collector(col, Item{Identifier: statekey.Tag.Value, Value: itemval})
+	}
+	if !read {
+		return nil, nil
 	}
 	return col, nil
 }

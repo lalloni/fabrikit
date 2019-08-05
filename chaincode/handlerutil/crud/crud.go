@@ -24,6 +24,10 @@ type opt struct {
 	del      bool
 	delrange bool
 
+	getsingleton      bool
+	getcollection     bool
+	getcollectionitem bool
+
 	defaultcheck auth.Check
 	readcheck    auth.Check
 	writecheck   auth.Check
@@ -37,7 +41,11 @@ type opt struct {
 	delcheck      auth.Check
 	delrangecheck auth.Check
 
-	validator Validator
+	getsingletoncheck      auth.Check
+	getcollectioncheck     auth.Check
+	getcollectionitemcheck auth.Check
+
+	putvalidator Validator
 
 	id   param.Param
 	item param.Param
@@ -55,6 +63,10 @@ func WithPutList(b bool) Option  { return func(o *opt) { o.putlist = b } }
 func WithDel(b bool) Option      { return func(o *opt) { o.del = b } }
 func WithDelRange(b bool) Option { return func(o *opt) { o.delrange = b } }
 
+func WithGetSingleton(b bool) Option      { return func(o *opt) { o.getsingleton = b } }
+func WithGetCollection(b bool) Option     { return func(o *opt) { o.getcollection = b } }
+func WithGetCollectionItem(b bool) Option { return func(o *opt) { o.getcollectionitem = b } }
+
 func WithDefaultCheck(c auth.Check) Option { return func(o *opt) { o.defaultcheck = c } }
 func WithReadCheck(c auth.Check) Option    { return func(o *opt) { o.readcheck = c } }
 func WithWriteCheck(c auth.Check) Option   { return func(o *opt) { o.writecheck = c } }
@@ -68,7 +80,13 @@ func WithPutListCheck(c auth.Check) Option  { return func(o *opt) { o.putlistche
 func WithDelCheck(c auth.Check) Option      { return func(o *opt) { o.delcheck = c } }
 func WithDelRangeCheck(c auth.Check) Option { return func(o *opt) { o.delrangecheck = c } }
 
-func WithValidator(v Validator) Option { return func(o *opt) { o.validator = v } }
+func WithGetSingletonCheck(c auth.Check) Option  { return func(o *opt) { o.getsingletoncheck = c } }
+func WithGetCollectionCheck(c auth.Check) Option { return func(o *opt) { o.getcollectioncheck = c } }
+func WithGetCollectionItemCheck(c auth.Check) Option {
+	return func(o *opt) { o.getcollectionitemcheck = c }
+}
+
+func WithPutValidator(v Validator) Option { return func(o *opt) { o.putvalidator = v } }
 
 func WithIDParam(p param.Param) Option   { return func(o *opt) { o.id = p } }
 func WithItemParam(p param.Param) Option { return func(o *opt) { o.item = p } }
@@ -89,6 +107,9 @@ var Defaults = []Option{
 	WithGetRange(true),
 	WithPut(true),
 	WithPutList(true),
+	WithGetSingleton(true),
+	WithGetCollection(true),
+	WithGetCollectionItem(true),
 	WithDel(true),
 	WithDelRange(true),
 	WithDefaultCheck(auth.Allowed),
@@ -118,11 +139,11 @@ func AddHandlers(r router.Router, s *store.Schema, opts ...Option) {
 	}
 	if o.put {
 		c := pri(o.putcheck, o.writecheck, o.defaultcheck)
-		add(r, "Put"+name, c, PutHandler(s, o.item, o.validator))
+		add(r, "Put"+name, c, PutHandler(s, o.item, o.putvalidator))
 	}
 	if o.putlist {
 		c := pri(o.putlistcheck, o.writecheck, o.defaultcheck)
-		add(r, "Put"+name+"List", c, PutListHandler(s, o.list, o.validator))
+		add(r, "Put"+name+"List", c, PutListHandler(s, o.list, o.putvalidator))
 	}
 	if o.del {
 		c := pri(o.delcheck, o.writecheck, o.defaultcheck)
@@ -131,6 +152,24 @@ func AddHandlers(r router.Router, s *store.Schema, opts ...Option) {
 	if o.delrange {
 		c := pri(o.delcheck, o.writecheck, o.defaultcheck)
 		add(r, "Del"+name+"Range", c, DelRangeHandler(s, o.id))
+	}
+	if o.getsingleton {
+		c := pri(o.getsingletoncheck, o.readcheck, o.defaultcheck)
+		for _, singleton := range s.Singletons() {
+			add(r, "Get"+name+strings.Title(singleton.Name), c, GetSingletonHandler(s, singleton, o.id))
+		}
+	}
+	if o.getcollection {
+		c := pri(o.getcollectioncheck, o.readcheck, o.defaultcheck)
+		for _, collection := range s.Collections() {
+			add(r, "Get"+name+strings.Title(collection.Name), c, GetCollectionHandler(s, collection, o.id))
+		}
+	}
+	if o.getcollectionitem {
+		c := pri(o.getcollectioncheck, o.readcheck, o.defaultcheck)
+		for _, collection := range s.Collections() {
+			add(r, "Get"+name+strings.Title(collection.Name)+"Item", c, GetCollectionItemHandler(s, collection, o.id))
+		}
 	}
 }
 
@@ -149,7 +188,7 @@ func add(r router.Router, name string, c auth.Check, h handler.Handler) {
 
 func GetHandler(s *store.Schema, id param.Param) handler.Handler {
 	return func(c *context.Context) *response.Response {
-		args, err := handler.ExtractArgs(c.Stub.GetArgs()[1:], id)
+		args, err := handler.ExtractArgs(c.Args(), id)
 		if err != nil {
 			return response.BadRequest("invalid %s id: %v", s.Name(), err)
 		}
@@ -166,7 +205,7 @@ func GetHandler(s *store.Schema, id param.Param) handler.Handler {
 
 func GetAllHandler(s *store.Schema) handler.Handler {
 	return func(c *context.Context) *response.Response {
-		_, err := handler.ExtractArgs(c.Stub.GetArgs()[1:]) // no parameters
+		_, err := handler.ExtractArgs(c.Args()) // no parameters
 		if err != nil {
 			return response.BadRequest(err.Error())
 		}
@@ -180,7 +219,7 @@ func GetAllHandler(s *store.Schema) handler.Handler {
 
 func GetRangeHandler(s *store.Schema, id param.Param) handler.Handler {
 	return func(c *context.Context) *response.Response {
-		args, err := handler.ExtractArgs(c.Stub.GetArgs()[1:], id, id)
+		args, err := handler.ExtractArgs(c.Args(), id, id)
 		if err != nil {
 			return response.BadRequest("invalid %s id: %v", s.Name(), err)
 		}
@@ -194,7 +233,7 @@ func GetRangeHandler(s *store.Schema, id param.Param) handler.Handler {
 
 func PutHandler(s *store.Schema, val param.Param, valid Validator) handler.Handler {
 	return func(c *context.Context) *response.Response {
-		args, err := handler.ExtractArgs(c.Stub.GetArgs()[1:], val)
+		args, err := handler.ExtractArgs(c.Args(), val)
 		if err != nil {
 			return response.BadRequest("invalid %s: %v", s.Name(), err)
 		}
@@ -214,7 +253,7 @@ func PutHandler(s *store.Schema, val param.Param, valid Validator) handler.Handl
 
 func DelHandler(s *store.Schema, id param.Param) handler.Handler {
 	return func(c *context.Context) *response.Response {
-		args, err := handler.ExtractArgs(c.Stub.GetArgs()[1:], id)
+		args, err := handler.ExtractArgs(c.Args(), id)
 		if err != nil {
 			return response.BadRequest("invalid %s id: %v", s.Name(), err)
 		}
@@ -235,7 +274,7 @@ func DelHandler(s *store.Schema, id param.Param) handler.Handler {
 
 func DelRangeHandler(s *store.Schema, id param.Param) handler.Handler {
 	return func(c *context.Context) *response.Response {
-		args, err := handler.ExtractArgs(c.Stub.GetArgs()[1:], id, id)
+		args, err := handler.ExtractArgs(c.Args(), id, id)
 		if err != nil {
 			return response.BadRequest("invalid %s id: %v", s.Name(), err)
 		}
@@ -249,7 +288,7 @@ func DelRangeHandler(s *store.Schema, id param.Param) handler.Handler {
 
 func HasHandler(s *store.Schema, id param.Param) handler.Handler {
 	return func(c *context.Context) *response.Response {
-		args, err := handler.ExtractArgs(c.Stub.GetArgs()[1:], id)
+		args, err := handler.ExtractArgs(c.Args(), id)
 		if err != nil {
 			return response.BadRequest("invalid %s id: %v", s.Name(), err)
 		}
@@ -263,7 +302,7 @@ func HasHandler(s *store.Schema, id param.Param) handler.Handler {
 
 func PutListHandler(s *store.Schema, list param.Param, valid Validator) handler.Handler {
 	return func(c *context.Context) *response.Response {
-		args, err := handler.ExtractArgs(c.Stub.GetArgs()[1:], list)
+		args, err := handler.ExtractArgs(c.Args(), list)
 		if err != nil {
 			return response.BadRequest("invalid %s list: %v", s.Name(), err)
 		}
@@ -282,5 +321,58 @@ func PutListHandler(s *store.Schema, list param.Param, valid Validator) handler.
 			count++
 		}
 		return response.OK(count)
+	}
+}
+
+func GetSingletonHandler(s *store.Schema, singleton *store.Singleton, id param.Param) handler.Handler {
+	return func(c *context.Context) *response.Response {
+		args, err := handler.ExtractArgs(c.Args(), id)
+		if err != nil {
+			return response.BadRequest("invalid arguments: %v", err)
+		}
+		v, err := c.Store.GetCompositeSingleton(singleton, args[0])
+		if err != nil {
+			return response.Error("getting %s singleton %s: %v", s.Name(), singleton.Name, err)
+		}
+		if v == nil {
+			return response.NotFoundWithMessage("%s identified with %v not found", s.Name(), args[0])
+		}
+		return response.OK(v)
+	}
+}
+
+func GetCollectionHandler(s *store.Schema, collection *store.Collection, id param.Param) handler.Handler {
+	return func(c *context.Context) *response.Response {
+		args, err := handler.ExtractArgs(c.Args(), id)
+		if err != nil {
+			return response.BadRequest("invalid arguments: %v", err)
+		}
+		v, err := c.Store.GetCompositeCollection(collection, args[0])
+		if err != nil {
+			return response.Error("getting %s collection %s: %v", s.Name(), collection.Name, err)
+		}
+		if v == nil {
+			return response.NotFoundWithMessage("%s identified with %v not found or its %s collection was empty", s.Name(), args[0], collection.Name)
+		}
+		return response.OK(v)
+	}
+}
+
+func GetCollectionItemHandler(s *store.Schema, collection *store.Collection, id param.Param) handler.Handler {
+	return func(c *context.Context) *response.Response {
+		args, err := handler.ExtractArgs(c.Args(), id, param.String)
+		if err != nil {
+			return response.BadRequest("invalid arguments: %v", err)
+		}
+		id := args[0]
+		item := args[1].(string)
+		v, err := c.Store.GetCompositeCollectionItem(collection, id, item)
+		if err != nil {
+			return response.Error("getting %s collection %s item %s: %v", s.Name(), collection.Name, item, err)
+		}
+		if v == nil {
+			return response.NotFoundWithMessage("%s identified with %v not found or its %s collection item %q was not found", s.Name(), id, collection.Name, item)
+		}
+		return response.OK(v)
 	}
 }

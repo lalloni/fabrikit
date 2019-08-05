@@ -26,11 +26,12 @@ func Prepare(com Composite) (*Schema, error) {
 	}
 	value := com.Creator()
 	valueType := reflect.TypeOf(value).Elem()
-	members := map[string]interface{}{}
+	tags := map[string]bool{}
+	names := map[string]bool{}
 	schema.singletons = map[string]*Singleton{}
 	for _, singleton := range com.Singletons {
 		singleton := singleton
-		err := prepareSingleton(&singleton, members, value)
+		err := prepareSingleton(&singleton, tags, names, value)
 		if err != nil {
 			return nil, err
 		}
@@ -40,7 +41,7 @@ func Prepare(com Composite) (*Schema, error) {
 	schema.collections = map[string]*Collection{}
 	for _, collection := range com.Collections {
 		collection := collection
-		err := prepareCollection(&collection, members, valueType)
+		err := prepareCollection(&collection, tags, names, valueType)
 		if err != nil {
 			return nil, err
 		}
@@ -65,16 +66,28 @@ func Prepare(com Composite) (*Schema, error) {
 	return schema, nil
 }
 
-func prepareCollection(collection *Collection, members map[string]interface{}, valueType reflect.Type) error {
+func prepareCollection(collection *Collection, tags, names map[string]bool, valueType reflect.Type) error {
 	if collection.Tag == "" {
 		return errors.Errorf("composite collection %+v must specifify a tag name", collection)
 	}
 	if collection.Tag == witnessTag {
 		return errors.Errorf("reserved member tag: collection %+v", collection)
 	}
-	if _, ok := members[collection.Tag]; ok {
+	if tags[collection.Tag] {
 		return errors.Errorf("duplicate member tag: collection %+v", collection)
 	}
+	tags[collection.Tag] = true
+	if collection.Name == "" {
+		if collection.Field != "" {
+			collection.Name = collection.Field
+		} else {
+			collection.Name = collection.Tag
+		}
+	}
+	if names[collection.Name] {
+		return errors.Errorf("duplicate member name: collection %+v", collection)
+	}
+	names[collection.Name] = true
 	if collection.Getter == nil {
 		if collection.Field != "" {
 			collection.Getter = FieldGetter(collection.Field)
@@ -129,16 +142,28 @@ func prepareCollection(collection *Collection, members map[string]interface{}, v
 	return nil
 }
 
-func prepareSingleton(singleton *Singleton, members map[string]interface{}, value interface{}) error {
+func prepareSingleton(singleton *Singleton, tags, names map[string]bool, value interface{}) error {
 	if singleton.Tag == "" {
 		return errors.Errorf("composite singleton %+v must specifify a tag name", singleton)
 	}
 	if singleton.Tag == witnessTag {
 		return errors.Errorf("reserved member tag: singleton %+v", singleton)
 	}
-	if _, ok := members[singleton.Tag]; ok {
+	if tags[singleton.Tag] {
 		return errors.Errorf("duplicate member tag: singleton %+v", singleton)
 	}
+	tags[singleton.Tag] = true
+	if singleton.Name == "" {
+		if singleton.Field != "" {
+			singleton.Name = singleton.Field
+		} else {
+			singleton.Name = singleton.Tag
+		}
+	}
+	if names[singleton.Name] {
+		return errors.Errorf("duplicate member name: singleton %+v", singleton)
+	}
+	names[singleton.Name] = true
 	if singleton.Getter == nil {
 		if singleton.Field != "" {
 			singleton.Getter = FieldGetter(singleton.Field)
@@ -368,6 +393,22 @@ func (cc *Schema) Collection(tag string) *Collection {
 
 func (cc *Schema) Singleton(tag string) *Singleton {
 	return cc.singletons[tag]
+}
+
+func (cc *Schema) Collections() []*Collection {
+	r := []*Collection(nil)
+	for _, c := range cc.collections {
+		r = append(r, c)
+	}
+	return r
+}
+
+func (cc *Schema) Singletons() []*Singleton {
+	r := []*Singleton(nil)
+	for _, s := range cc.singletons {
+		r = append(r, s)
+	}
+	return r
 }
 
 func (cc *Schema) KeyBaseName() string {

@@ -103,6 +103,10 @@ func (ctx *Context) Option(name string) (string, bool) {
 	return v, present
 }
 
+func (ctx *Context) Args() [][]byte {
+	return ctx.Stub.GetArgs()[1:]
+}
+
 func (ctx *Context) ArgBytes(n int) ([]byte, error) {
 	args := ctx.Stub.GetArgs()
 	if len(args) < n+1 {
