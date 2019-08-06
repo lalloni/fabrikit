@@ -10,6 +10,7 @@ import (
 
 	"github.com/lalloni/fabrikit/chaincode/logging"
 	"github.com/lalloni/fabrikit/chaincode/store"
+	"github.com/lalloni/fabrikit/chaincode/storeutil"
 )
 
 func New(stub shim.ChaincodeStubInterface, name, version string, path ...string) *Context {
@@ -28,6 +29,10 @@ func New(stub shim.ChaincodeStubInterface, name, version string, path ...string)
 		}
 		c.function = fun
 		c.options = opts
+	}
+	if c.options["storecache"] != "no" {
+		// setup cached store unless invoked with storecache=no option
+		c.Store = storeutil.ReadCacheStore(c.Store)
 	}
 	return c
 }

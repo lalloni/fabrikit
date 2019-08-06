@@ -1,4 +1,4 @@
-package storeutil
+package storeutil_test
 
 import (
 	"strconv"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/lalloni/fabrikit/chaincode/storeutil"
 	"github.com/lalloni/fabrikit/chaincode/store"
 	"github.com/lalloni/fabrikit/chaincode/store/key"
 	"github.com/lalloni/fabrikit/chaincode/test"
@@ -128,7 +129,7 @@ func TestCachedStore(t *testing.T) {
 	mock := test.NewMock("test", nil)
 
 	spy := &spyStore{store: store.New(mock)}
-	cs := ReadCacheStore(spy)
+	cs := storeutil.ReadCacheStore(spy)
 
 	test.InTransaction(mock, func(tx string) {
 		a.NoError(cs.PutComposite(ThingSchema, &Thing{ID: 1, Name: "foo"}))
