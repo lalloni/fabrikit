@@ -20,6 +20,12 @@ func MustPrepare(com Composite) *Schema {
 }
 
 func Prepare(com Composite) (*Schema, error) {
+	if com.KeyBaseName == "" {
+		return nil, errors.New("composite must have a key base name")
+	}
+	if com.IdentifierKey == nil {
+		return nil, errors.New("composite must have an identifier key function")
+	}
 	schema := &Schema{
 		name:      com.Name,
 		composite: &com,
@@ -210,7 +216,7 @@ func (cc *Schema) IdentifierKey(id interface{}) (k *key.Key, err error) {
 	defer func() {
 		p := recover()
 		if p != nil {
-			err = errors.Errorf("building composite %q key from id %v: %v", cc.name, id, p)
+			err = errors.Wrapf(p.(error), "building composite %q key from id %v: %v", cc.name, id, p)
 		}
 	}()
 	return cc.composite.IdentifierKey(id)
@@ -238,7 +244,7 @@ func (cc *Schema) ValueIdentifier(val interface{}) (id interface{}, err error) {
 	defer func() {
 		p := recover()
 		if p != nil {
-			err = errors.Errorf("getting composite %q id: %v", cc.name, p)
+			err = errors.Wrapf(p.(error), "getting composite %q id: %v", cc.name, p)
 		}
 	}()
 	id = cc.composite.IdentifierGetter(val)
